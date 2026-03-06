@@ -1,0 +1,1 @@
+Fixed camera. Identical scene throughout. The left robot arm performs exactly one reach-grasp-lift-reset sequence to pick up the single white wire from the bin. Smooth continuous motion, no retries, no pauses except the final hold. After returning to reset, the robot remains perfectly still and continues holding the wire. No changes in camera, lighting, background, or objects.
