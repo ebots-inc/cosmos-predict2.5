@@ -13,6 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+from pathlib import Path
+
 from hydra.core.config_store import ConfigStore
 
 from cosmos_predict2._src.imaginaire.lazy_config import LazyCall as L
@@ -54,6 +57,42 @@ example_video_dataset_gr1_short = L(VideoDataset)(
 dataloader_train_gr1_short = L(get_generic_dataloader)(
     dataset=example_video_dataset_gr1_short,
     sampler=L(get_sampler)(dataset=example_video_dataset_gr1_short),
+    batch_size=1,
+    drop_last=True,
+    num_workers=4,
+    pin_memory=True,
+)
+
+# EBOTS: flat export from LeRobot (run scripts/export_lerobot_to_flat.py first)
+# Expects output_dir/videos/episode_*.mp4 and output_dir/metas/episode_*.txt
+_EBOTS_FLAT_DEFAULT = os.environ.get(
+    "EBOTS_DATASET_DIR",
+    str(Path.home() / "set_1_flat"),
+)
+example_video_dataset_ebots_448 = L(VideoDataset)(
+    dataset_dir=_EBOTS_FLAT_DEFAULT,
+    num_frames=93,
+    video_size=(448, 448),
+    caption_format="text",
+)
+dataloader_train_ebots_448 = L(get_generic_dataloader)(
+    dataset=example_video_dataset_ebots_448,
+    sampler=L(get_sampler)(dataset=example_video_dataset_ebots_448),
+    batch_size=1,
+    drop_last=True,
+    num_workers=4,
+    pin_memory=True,
+)
+
+example_video_dataset_ebots_224 = L(VideoDataset)(
+    dataset_dir=_EBOTS_FLAT_DEFAULT,
+    num_frames=93,
+    video_size=(224, 224),
+    caption_format="text",
+)
+dataloader_train_ebots_224 = L(get_generic_dataloader)(
+    dataset=example_video_dataset_ebots_224,
+    sampler=L(get_sampler)(dataset=example_video_dataset_ebots_224),
     batch_size=1,
     drop_last=True,
     num_workers=4,
@@ -214,11 +253,197 @@ predict2_video2world_training_14b_groot_gr1_480 = dict(
     ),
 )
 
+# EBOTS: 2B, flat VideoDataset 448x448
+predict2_video2world_training_2b_ebots_448 = dict(
+    defaults=[
+        f"/experiment/{DEFAULT_CHECKPOINT_2B.experiment}",
+        {"override /data_train": "mock"},
+        {"override /data_val": "mock"},
+        "_self_",
+    ],
+    dataloader_train=dataloader_train_ebots_448,
+    checkpoint=dict(
+        save_iter=200,
+        load_path=DEFAULT_CHECKPOINT_2B.s3.uri,
+        load_from_object_store=dict(enabled=False),
+        save_to_object_store=dict(enabled=False),
+    ),
+    job=dict(
+        project="cosmos_predict_v2p5",
+        group="video2world",
+        name="2b_ebots_448",
+    ),
+    optimizer=dict(lr=2 ** (-14.5), weight_decay=0.001),
+    scheduler=dict(
+        f_max=[0.5],
+        f_min=[0.2],
+        warm_up_steps=[1_000],
+        cycle_lengths=[100000],
+    ),
+    trainer=dict(
+        logging_iter=100,
+        max_iter=10000,
+        callbacks=dict(
+            heart_beat=dict(save_s3=False),
+            iter_speed=dict(hit_thres=100, save_s3=False),
+            device_monitor=dict(save_s3=False),
+            every_n_sample_reg=dict(every_n=500, save_s3=False),
+            every_n_sample_ema=dict(every_n=500, save_s3=False),
+            wandb=dict(save_s3=False),
+            wandb_10x=dict(save_s3=False),
+            dataloader_speed=dict(save_s3=False),
+        ),
+    ),
+    model_parallel=dict(context_parallel_size=1),
+)
+
+# EBOTS: 2B, flat VideoDataset 224x224
+predict2_video2world_training_2b_ebots_224 = dict(
+    defaults=[
+        f"/experiment/{DEFAULT_CHECKPOINT_2B.experiment}",
+        {"override /data_train": "mock"},
+        {"override /data_val": "mock"},
+        "_self_",
+    ],
+    dataloader_train=dataloader_train_ebots_224,
+    checkpoint=dict(
+        save_iter=200,
+        load_path=DEFAULT_CHECKPOINT_2B.s3.uri,
+        load_from_object_store=dict(enabled=False),
+        save_to_object_store=dict(enabled=False),
+    ),
+    job=dict(
+        project="cosmos_predict_v2p5",
+        group="video2world",
+        name="2b_ebots_224",
+    ),
+    optimizer=dict(lr=2 ** (-14.5), weight_decay=0.001),
+    scheduler=dict(
+        f_max=[0.5],
+        f_min=[0.2],
+        warm_up_steps=[1_000],
+        cycle_lengths=[100000],
+    ),
+    trainer=dict(
+        logging_iter=100,
+        max_iter=1000,
+        callbacks=dict(
+            heart_beat=dict(save_s3=False),
+            iter_speed=dict(hit_thres=100, save_s3=False),
+            device_monitor=dict(save_s3=False),
+            every_n_sample_reg=dict(every_n=200, save_s3=False),
+            every_n_sample_ema=dict(every_n=200, save_s3=False),
+            wandb=dict(save_s3=False),
+            wandb_10x=dict(save_s3=False),
+            dataloader_speed=dict(save_s3=False),
+        ),
+    ),
+    model_parallel=dict(context_parallel_size=1),
+)
+
+# EBOTS: 14B, flat VideoDataset 224x224
+# torchrun --nproc_per_node=8 --master_port=12341 -m scripts.train --config=cosmos_predict2/_src/predict2/configs/video2world/config.py -- experiment=predict2_video2world_training_14b_ebots_224
+predict2_video2world_training_14b_ebots_224 = dict(
+    defaults=[
+        f"/experiment/{DEFAULT_CHECKPOINT_14B.experiment}",
+        {"override /data_train": "mock"},
+        {"override /data_val": "mock"},
+        "_self_",
+    ],
+    dataloader_train=dataloader_train_ebots_224,
+    checkpoint=dict(
+        save_iter=200,
+        load_path=DEFAULT_CHECKPOINT_14B.s3.uri,
+        load_from_object_store=dict(enabled=False),
+        save_to_object_store=dict(enabled=False),
+    ),
+    job=dict(
+        project="cosmos_predict_v2p5",
+        group="video2world",
+        name="14b_ebots_224",
+    ),
+    optimizer=dict(lr=2 ** (-15.5), weight_decay=0.001),
+    scheduler=dict(
+        f_max=[0.5],
+        f_min=[0.2],
+        warm_up_steps=[1_000],
+        cycle_lengths=[100000],
+    ),
+    trainer=dict(
+        logging_iter=100,
+        max_iter=1000,
+        straggler_detection=dict(enabled=False),
+        callbacks=dict(
+            heart_beat=dict(save_s3=False),
+            iter_speed=dict(hit_thres=100, save_s3=False),
+            device_monitor=dict(save_s3=False),
+            every_n_sample_reg=dict(every_n=500, save_s3=False),
+            every_n_sample_ema=dict(every_n=500, save_s3=False),
+            wandb=dict(save_s3=False),
+            wandb_10x=dict(save_s3=False),
+            dataloader_speed=dict(save_s3=False),
+        ),
+    ),
+    model_parallel=dict(context_parallel_size=1),
+    model=dict(config=dict(state_t=12)),
+)
+
+# EBOTS: 14B, flat VideoDataset 448x448 (run: scripts/export_lerobot_to_flat.py first)
+# torchrun --nproc_per_node=8 --master_port=12341 -m scripts.train --config=cosmos_predict2/_src/predict2/configs/video2world/config.py -- experiment=predict2_video2world_training_14b_ebots_448
+predict2_video2world_training_14b_ebots_448 = dict(
+    defaults=[
+        f"/experiment/{DEFAULT_CHECKPOINT_14B.experiment}",
+        {"override /data_train": "mock"},
+        {"override /data_val": "mock"},
+        "_self_",
+    ],
+    dataloader_train=dataloader_train_ebots_448,
+    checkpoint=dict(
+        save_iter=200,
+        load_path=DEFAULT_CHECKPOINT_14B.s3.uri,
+        load_from_object_store=dict(enabled=False),
+        save_to_object_store=dict(enabled=False),
+    ),
+    job=dict(
+        project="cosmos_predict_v2p5",
+        group="video2world",
+        name="14b_ebots_448",
+    ),
+    optimizer=dict(lr=2 ** (-15.5), weight_decay=0.001),
+    scheduler=dict(
+        f_max=[0.5],
+        f_min=[0.2],
+        warm_up_steps=[1_000],
+        cycle_lengths=[100000],
+    ),
+    trainer=dict(
+        logging_iter=100,
+        max_iter=1000,
+        straggler_detection=dict(enabled=False),
+        callbacks=dict(
+            heart_beat=dict(save_s3=False),
+            iter_speed=dict(hit_thres=100, save_s3=False),
+            device_monitor=dict(save_s3=False),
+            every_n_sample_reg=dict(every_n=500, save_s3=False),
+            every_n_sample_ema=dict(every_n=500, save_s3=False),
+            wandb=dict(save_s3=False),
+            wandb_10x=dict(save_s3=False),
+            dataloader_speed=dict(save_s3=False),
+        ),
+    ),
+    model_parallel=dict(context_parallel_size=1),
+    model=dict(config=dict(state_t=12)),
+)
+
 cs = ConfigStore.instance()
 
 for _item in [
     predict2_video2world_training_2b_groot_gr1_480,
     predict2_video2world_training_14b_groot_gr1_480,
+    predict2_video2world_training_2b_ebots_448,
+    predict2_video2world_training_2b_ebots_224,
+    predict2_video2world_training_14b_ebots_224,
+    predict2_video2world_training_14b_ebots_448,
 ]:
     # Get the experiment name from the global variable
     experiment_name = [name.lower() for name, value in globals().items() if value is _item][0]
