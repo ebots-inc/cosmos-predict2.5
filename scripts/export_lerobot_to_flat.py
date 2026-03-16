@@ -80,15 +80,16 @@ def get_episode_paths(chunk_dir: Path, episode_index: int) -> tuple[Path | None,
 def tile_three_views_to_mp4(
     high_path: Path,
     left_path: Path,
-    right_path: Path,
+    right_path: Path | None,
     out_path: Path,
 ) -> None:
-    """Tile 3 views into 2x2 layout (high|left, right|black) and write one mp4. Same layout as cosmos-predict2 tile_lerobot_videos."""
+    """Tile 3 views into 2x2 layout (high|left, right|black) and write one mp4. Same layout as cosmos-predict2 tile_lerobot_videos.
+    If right_path is None (e.g. noRightCam dataset), use black frames for the right view."""
     vr_h = VideoReader(str(high_path), ctx=cpu(0), num_threads=1)
     vr_l = VideoReader(str(left_path), ctx=cpu(0), num_threads=1)
-    vr_r = VideoReader(str(right_path), ctx=cpu(0), num_threads=1)
+    vr_r = VideoReader(str(right_path), ctx=cpu(0), num_threads=1) if right_path is not None else None
 
-    n = min(len(vr_h), len(vr_l), len(vr_r))
+    n = min(len(vr_h), len(vr_l), len(vr_r) if vr_r is not None else len(vr_h))
     if n <= 0:
         raise ValueError(f"Empty video among: {high_path}, {left_path}, {right_path}")
 
@@ -101,9 +102,12 @@ def tile_three_views_to_mp4(
         raise ValueError(f"Expected HxWx3, got {f0h.shape} from {high_path}")
     h, w = f0h.shape[:2]
     f0l = vr_l[0].asnumpy()
-    f0r = vr_r[0].asnumpy()
-    if f0l.shape[:2] != (h, w) or f0r.shape[:2] != (h, w):
-        raise ValueError(f"View resolutions differ: high={f0h.shape}, left={f0l.shape}, right={f0r.shape}")
+    if f0l.shape[:2] != (h, w):
+        raise ValueError(f"View resolutions differ: high={f0h.shape}, left={f0l.shape}")
+    if vr_r is not None:
+        f0r = vr_r[0].asnumpy()
+        if f0r.shape[:2] != (h, w):
+            raise ValueError(f"View resolutions differ: high={f0h.shape}, right={f0r.shape}")
 
     blank = np.zeros((h, w, 3), dtype=np.uint8)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -114,7 +118,7 @@ def tile_three_views_to_mp4(
         for i in range(n):
             fh = vr_h[i].asnumpy()
             fl = vr_l[i].asnumpy()
-            fr = vr_r[i].asnumpy()
+            fr = vr_r[i].asnumpy() if vr_r is not None else blank
             top = np.concatenate([fh, fl], axis=1)
             bot = np.concatenate([fr, blank], axis=1)
             tiled = np.concatenate([top, bot], axis=0)
@@ -181,9 +185,10 @@ def main() -> None:
     exported = 0
     for ep_idx in sorted(episode_tasks.keys()):
         high_p, left_p, right_p = get_episode_paths(chunk_dir, ep_idx)
-        if high_p is None or left_p is None or right_p is None:
+        if high_p is None or left_p is None:
             print(f"Skip episode {ep_idx}: missing view(s)")
             continue
+        # right_p may be None for 2-camera datasets (e.g. noRightCam); script tiles with black for right view
 
         base = f"episode_{ep_idx:06d}"
         dest_mp4 = videos_out / f"{base}.mp4"
