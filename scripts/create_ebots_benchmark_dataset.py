@@ -8,18 +8,27 @@
 # Prerequisites: Run scripts/export_lerobot_to_flat.py first to get flat_dir with
 #   flat_dir/videos/episode_*.mp4 and flat_dir/metas/episode_*.txt
 #
-# Example:
+# Example (all episodes):
 #   python -m scripts.create_ebots_benchmark_dataset \
 #     --flat_dir /path/to/set_1_flat \
 #     --output_dir dataset_benchmark_inference/ebots_pickup \
 #     --frame_index 0
+# Example (only "Pick the Ethernet plug." episodes):
+#   python -m scripts.create_ebots_benchmark_dataset \
+#     --flat_dir /path/to/set_1_flat \
+#     --output_dir dataset_benchmark_inference/ebots_pickup \
+#     --frame_index 0 \
+#     --episodes_jsonl /path/to/meta/episodes.jsonl \
+#     --task_filter "Pick the Ethernet plug."
 #   python -m scripts.prepare_batch_input_json \
 #     --dataset_path dataset_benchmark_inference/ebots_pickup \
 #     --output_path assets/sample_ebots/batch_input_image2world.json \
 #     --format cosmos_predictv2p5
 
 import argparse
+import json
 import os
+import re
 import sys
 import tempfile
 
@@ -75,7 +84,35 @@ def parse_args():
         default=None,
         help="Max number of episodes to process (default: all)",
     )
+    p.add_argument(
+        "--episodes_jsonl",
+        type=str,
+        default=None,
+        help="Path to meta/episodes.jsonl; used with --task_filter to include only episodes matching that task",
+    )
+    p.add_argument(
+        "--task_filter",
+        type=str,
+        default=None,
+        help='Task string to filter episodes (e.g. "Pick the Ethernet plug."). Requires --episodes_jsonl.',
+    )
     return p.parse_args()
+
+
+def _load_episode_indices_for_task(episodes_jsonl_path: str, task_filter: str) -> set[int]:
+    """Load episode_index set for episodes whose tasks list contains task_filter."""
+    path = _expand_path(episodes_jsonl_path)
+    indices = set()
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            obj = json.loads(line)
+            tasks = obj.get("tasks") or []
+            if task_filter in tasks:
+                indices.add(int(obj["episode_index"]))
+    return indices
 
 
 def extract_frame(video_path: str, frame_index: int) -> np.ndarray:
@@ -109,7 +146,27 @@ def main():
 
     os.makedirs(output_dir, exist_ok=True)
 
+    allowed_episode_indices = None
+    if args.episodes_jsonl is not None or args.task_filter is not None:
+        if args.episodes_jsonl is None or args.task_filter is None:
+            print("Error: --episodes_jsonl and --task_filter must be used together.", file=sys.stderr)
+            sys.exit(1)
+        if not os.path.isfile(_expand_path(args.episodes_jsonl)):
+            print(f"Error: episodes_jsonl not found: {args.episodes_jsonl}", file=sys.stderr)
+            sys.exit(1)
+        allowed_episode_indices = _load_episode_indices_for_task(args.episodes_jsonl, args.task_filter)
+        print(f"Task filter \"{args.task_filter}\": {len(allowed_episode_indices)} episodes.", flush=True)
+
+    episode_stem_re = re.compile(r"^episode_(\d+)$")
     videos = sorted([f for f in os.listdir(videos_dir) if f.endswith(".mp4")])
+    if allowed_episode_indices is not None:
+        filtered = []
+        for f in videos:
+            stem = os.path.splitext(f)[0]
+            m = episode_stem_re.match(stem)
+            if m and int(m.group(1)) in allowed_episode_indices:
+                filtered.append(f)
+        videos = filtered
     if args.max_episodes is not None:
         videos = videos[: args.max_episodes]
 
