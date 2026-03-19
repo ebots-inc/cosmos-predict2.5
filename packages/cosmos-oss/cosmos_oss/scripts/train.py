@@ -30,6 +30,8 @@ from cosmos_predict2._src.imaginaire.utils.launch import log_reproducible_setup
 from cosmos_predict2._src.predict2.utils.model_loader import create_model_from_consolidated_checkpoint_with_fsdp
 from loguru import logger as logging
 
+from torch.distributed.elastic.multiprocessing.errors import record
+
 from cosmos_oss.init import init_environment, init_output_dir, is_rank0
 
 
@@ -74,6 +76,7 @@ def launch(config: Config, args: argparse.Namespace) -> None:
     )
 
 
+@record
 def main():
     init_environment()
 

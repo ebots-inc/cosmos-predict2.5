@@ -752,15 +752,20 @@ class Text2WorldModelRectifiedFlow(ImaginaireModel):
         timesteps = self.rectified_flow.get_discrete_timestamp(t_B, self.tensor_kwargs_fp32)
 
         if self.config.use_high_sigma_strategy:
-            raise NotImplementedError("High sigma strategy is buggy when using CP")
-            # Use high sigma strategy
+            cp_group = self.get_context_parallel_group()
+            cp_size = 1 if cp_group is None else cp_group.size()
+            if cp_size > 1:
+                raise NotImplementedError("High sigma strategy is buggy when using CP")
+            # Use high sigma strategy (only when CP is not active)
             mask = torch.rand(timesteps.shape, device=timesteps.device) < self.config.high_sigma_ratio
 
-            candidate_timesteps = self.rectified_flow.noise_scheduler.timesteps.to(device=timesteps.device)
-            candidate_timesteps = candidate_timesteps[
-                (candidate_timesteps >= self.config.high_sigma_timesteps_min)
-                & (candidate_timesteps <= self.config.high_sigma_timesteps_max)
-            ]
+            # RectifiedFlow uses num_train_timesteps (e.g. 1000), not a noise_scheduler; build candidate range directly.
+            candidate_timesteps = torch.arange(
+                self.config.high_sigma_timesteps_min,
+                self.config.high_sigma_timesteps_max + 1,
+                device=timesteps.device,
+                dtype=timesteps.dtype,
+            )
 
             if len(candidate_timesteps) > 0:
                 # Sample timesteps.shape values from candidate_timesteps with replacement

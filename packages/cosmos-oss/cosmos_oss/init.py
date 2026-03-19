@@ -158,6 +158,7 @@ def init_environment():
     _init_log_console()
     if enable_distributed():
         _init_distributed()
+        atexit.register(cleanup_environment)
 
 
 def cleanup_environment():

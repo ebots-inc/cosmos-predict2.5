@@ -374,9 +374,10 @@ def create_model_from_consolidated_checkpoint_with_fsdp(config: Config) -> Imagi
         model: The loaded and (optionally) FSDP-wrapped model.
     """
     # To avoid DTensor issues, load the model from a consolidated checkpoint in Tensor format before applying FSDP.
+    # Keep model on CPU during instantiation and loading to avoid OOM for large models (e.g. 14B on a single GPU).
     fsdp_shard_size = config.model.config.fsdp_shard_size
     config.model.config.fsdp_shard_size = 1  # Set to 1 to disable FSDP during model instantiation.
-    model = instantiate(config.model).cuda()
+    model = instantiate(config.model)
     # DCP checkpointer does not support loading from a consolidated checkpoint, so we support it here.
     model = load_model_state_dict_from_checkpoint(
         model=model,
@@ -384,7 +385,7 @@ def create_model_from_consolidated_checkpoint_with_fsdp(config: Config) -> Imagi
         s3_checkpoint_dir=config.checkpoint.load_path,
         load_ema_to_reg=config.checkpoint.load_ema_to_reg,
     )
-    # If FSDP is enabled, apply FSDP to the model.
+    # If FSDP is enabled, apply FSDP to the model (moves params to GPU in sharded form).
     if fsdp_shard_size > 1:
         config.model.config.fsdp_shard_size = fsdp_shard_size
         fsdp_device_mesh = hsdp_device_mesh(
@@ -396,5 +397,7 @@ def create_model_from_consolidated_checkpoint_with_fsdp(config: Config) -> Imagi
             raise AttributeError(
                 "Model does not implement 'apply_fsdp'. Please implement this method to enable FSDP after consolidated checkpoint loading."
             )
+    else:
+        model = model.cuda()
 
     return model
